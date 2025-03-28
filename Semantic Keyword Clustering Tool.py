@@ -1,4 +1,8 @@
+# ===== FIX FOR STREAMLIT/PYTORCH COMPATIBILITY =====
 import os
+os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Disables problematic file watcher
+
+# ===== REQUIRED IMPORTS =====
 import platform
 import string
 from collections import Counter
@@ -9,8 +13,9 @@ from polyfuzz import PolyFuzz
 from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
+import torch  # Must be imported after the environment fix
 
-# This must be the first Streamlit command
+# ===== STREAMLIT PAGE CONFIG (MUST BE FIRST COMMAND) =====
 st.set_page_config(
     page_title="Keyword Clustering Tool",
     page_icon="🔍",
@@ -18,20 +23,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Check for PyTorch compatibility
-try:
-    import torch
-    if not torch.cuda.is_available():
-        st.warning("CUDA not available - using CPU instead. Processing may be slower.")
-except ImportError:
-    st.error("PyTorch not installed. Please install PyTorch first.")
-    st.stop()
-
+# ===== CONSTANTS =====
 COMMON_COLUMN_NAMES = [
     "Keyword", "Keywords", "keyword", "keywords",
     "Search Terms", "Search terms", "Search term", "Search Term"
 ]
 
+# ===== CACHED MODEL LOADER =====
 @st.cache_resource
 def load_embedding_model(model_name: str, device: str):
     """Load and cache the SentenceTransformer model with error handling."""
@@ -44,8 +42,8 @@ def load_embedding_model(model_name: str, device: str):
         st.error("Please check your internet connection and try again.")
         st.stop()
 
+# ===== TEXT PROCESSING FUNCTIONS =====
 def stem_and_remove_punctuation(text: str, stem: bool, exclude_words: list = None):
-    """Process text by removing punctuation and optionally stemming."""
     text = str(text) if pd.notna(text) else ''
     text = text.translate(str.maketrans('', '', string.punctuation))
     if stem and text:
@@ -57,35 +55,31 @@ def stem_and_remove_punctuation(text: str, stem: bool, exclude_words: list = Non
     return text
 
 def create_unigram(cluster: str, stem: bool, exclude_words: list = None):
-    """Create unigram from the cluster and return the most common word."""
     cluster = str(cluster) if pd.notna(cluster) else ''
     words = cluster.split()
-    
     word_counts = Counter({
         word: count for word, count in Counter(words).items() 
         if (not (word.replace('.', '').isdigit() or word.replace(',', '').isdigit()) and
             (not exclude_words or word.lower() not in exclude_words))
     })
-    
     return stem_and_remove_punctuation(
         word_counts.most_common(1)[0][0] if word_counts else 'no_keyword',
         stem,
         exclude_words
     )
 
+# ===== FILE HANDLING =====
 def load_file(uploaded_file):
-    """Load a CSV file with automatic encoding detection."""
     try:
-        try:
-            return pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
-        except UnicodeDecodeError:
-            return pd.read_csv(uploaded_file, encoding='latin1', on_bad_lines='skip')
+        return pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
+    except UnicodeDecodeError:
+        return pd.read_csv(uploaded_file, encoding='latin1', on_bad_lines='skip')
     except Exception as e:
         st.error(f"Error loading file: {e}")
         return None
 
+# ===== VISUALIZATION =====
 def create_chart(df, chart_type, volume, top_n=None):
-    """Create visualization of clustered data."""
     if df.empty or 'hub' not in df.columns or 'spoke' not in df.columns:
         return None
         
@@ -108,8 +102,8 @@ def create_chart(df, chart_type, volume, top_n=None):
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0))
     return fig
 
+# ===== MAIN PROCESSING =====
 def process_data(df, column_name, model_name, device, min_similarity, stem, volume, exclude_words=None):
-    """Process and cluster the keyword data."""
     df = df.copy()
     df.rename(columns={column_name: 'keyword'}, inplace=True)
     df['keyword'] = df['keyword'].astype(str).str.strip().replace(['nan', '', 'None'], 'no_keyword')
@@ -151,12 +145,10 @@ def process_data(df, column_name, model_name, device, min_similarity, stem, volu
         st.error(f"Clustering error: {str(e)}")
         return pd.DataFrame()
 
+# ===== STREAMLIT UI =====
 def main():
     st.title("🔍 Semantic Keyword Clustering Tool")
-    st.markdown("""
-    Cluster keywords by semantic similarity using Sentence Transformers.
-    Upload a CSV file containing your keywords to get started.
-    """)
+    st.markdown("Cluster keywords by semantic similarity using Sentence Transformers.")
     
     with st.expander("Need example data?"):
         example_data = pd.DataFrame({
@@ -175,6 +167,9 @@ def main():
 
     with st.sidebar:
         st.header("Settings")
+        if not torch.cuda.is_available():
+            st.caption("⚠️ Running on CPU (slower). For GPU acceleration, use an NVIDIA GPU with CUDA.")
+        
         uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
         
         if uploaded_file is not None:
@@ -188,27 +183,27 @@ def main():
                          if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]),
                         0
                     ),
-                    help="Select the column containing your keywords"
+                    help="Column containing keywords to cluster"
                 )
                 
                 volume = st.selectbox(
                     "Volume column (optional)",
                     [None] + [col for col in df.columns if col != column_name],
-                    help="Select a column with volume/metric data if available"
+                    help="Metric column for weighting clusters"
                 )
                 
                 model_name = st.selectbox(
                     "Model",
                     ["all-MiniLM-L6-v2", "paraphrase-MiniLM-L6-v2", "all-mpnet-base-v2"],
                     index=0,
-                    help="Choose a language model (larger models are more accurate but slower)"
+                    help="Larger models are more accurate but slower"
                 )
                 
                 device = st.selectbox(
                     "Device",
                     ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"],
                     index=0,
-                    help="Select 'cuda' if you have an NVIDIA GPU for faster processing"
+                    help="Use CUDA for NVIDIA GPU acceleration"
                 )
                 
                 min_similarity = st.slider(
@@ -216,70 +211,41 @@ def main():
                     min_value=0.1, 
                     max_value=1.0, 
                     value=0.8, 
-                    step=0.05,
-                    help="Higher values create more precise but smaller clusters"
+                    step=0.05
                 )
                 
-                chart_type = st.selectbox(
-                    "Chart type", 
-                    ["treemap", "sunburst"], 
-                    index=0
-                )
-                
-                top_n = st.number_input(
-                    "Show top N clusters (0 for all)",
-                    min_value=0,
-                    value=0,
-                    step=1,
-                    help="Limit visualization to top N clusters by size"
-                )
-                
-                stem = st.checkbox(
-                    "Enable stemming", 
-                    False,
-                    help="Reduce words to their root form (e.g., 'running' → 'run')"
-                )
+                chart_type = st.selectbox("Chart type", ["treemap", "sunburst"], index=0)
+                top_n = st.number_input("Show top N clusters (0 for all)", min_value=0, value=0, step=1)
+                stem = st.checkbox("Enable stemming", False)
                 
                 exclude_words = st.text_input(
-                    "Words to exclude from hub terms (comma separated)",
+                    "Exclude words from hub terms (comma separated)",
                     "",
                     help="Prevent these words from becoming cluster labels"
                 )
                 exclude_words = [w.strip().lower() for w in exclude_words.split(",") if w.strip()] if exclude_words else None
                 
-                process_button = st.button("Process Data")
-
-    if uploaded_file is not None and 'process_button' in locals() and process_button:
-        with st.spinner('Processing...'):
-            processed_df = process_data(
-                df, column_name, model_name, device, min_similarity, stem, volume, exclude_words
-            )
-            
-            if not processed_df.empty:
-                st.success("Processing completed!")
-                
-                cluster_stats = processed_df.groupby('hub').size().sort_values(ascending=False)
-                st.write(f"**Cluster Summary:** {len(cluster_stats)} clusters created")
-                st.dataframe(cluster_stats.head(10).rename("Count"))
-                
-                with st.expander("View clustered data"):
-                    st.dataframe(processed_df.head(100))
-                
-                fig = create_chart(processed_df, chart_type, volume, top_n if top_n > 0 else None)
-                if fig:
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("No clusters to visualize. Try lowering the similarity threshold.")
-                
-                st.download_button(
-                    "Download clustered data as CSV",
-                    processed_df.to_csv(index=False).encode('utf-8'),
-                    "clustered_keywords.csv",
-                    "text/csv",
-                    help="Download the full clustered dataset"
-                )
-            else:
-                st.warning("No valid clusters created. Try lowering the similarity threshold or checking your input data.")
+                if st.button("Process Data"):
+                    with st.spinner('Processing...'):
+                        processed_df = process_data(
+                            df, column_name, model_name, device, 
+                            min_similarity, stem, volume, exclude_words
+                        )
+                        
+                        if not processed_df.empty:
+                            st.success("Processing completed!")
+                            st.dataframe(processed_df.head())
+                            
+                            fig = create_chart(processed_df, chart_type, volume, top_n if top_n > 0 else None)
+                            if fig:
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            st.download_button(
+                                "Download Results",
+                                processed_df.to_csv(index=False).encode('utf-8'),
+                                "clustered_keywords.csv",
+                                "text/csv"
+                            )
 
 if __name__ == "__main__":
     main()
