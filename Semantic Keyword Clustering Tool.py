@@ -1,9 +1,7 @@
 import os
 import platform
 import string
-import time
 from collections import Counter
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -12,23 +10,31 @@ from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
 
-# System check
-IS_WINDOWS = platform.system() == 'Windows'
-if IS_WINDOWS:
-    import win32com.client as win32
-    win32c = win32.constants
+# Check for PyTorch compatibility
+try:
+    import torch
+    if not torch.cuda.is_available():
+        st.warning("CUDA not available - using CPU instead. Processing may be slower.")
+except ImportError:
+    st.error("PyTorch not installed. Please install PyTorch first.")
+    st.stop()
 
 COMMON_COLUMN_NAMES = [
     "Keyword", "Keywords", "keyword", "keywords",
     "Search Terms", "Search terms", "Search term", "Search Term"
 ]
 
-# Cache the SentenceTransformer model to avoid reloading
 @st.cache_resource
 def load_embedding_model(model_name: str, device: str):
-    """Load and cache the SentenceTransformer model."""
-    with st.spinner(f'Loading {model_name}... This may take a minute.'):
-        return SentenceEmbeddings(SentenceTransformer(model_name, device=device))
+    """Load and cache the SentenceTransformer model with error handling."""
+    try:
+        with st.spinner(f'Loading {model_name}... This may take a minute.'):
+            model = SentenceTransformer(model_name, device=device)
+            return SentenceEmbeddings(model)
+    except Exception as e:
+        st.error(f"Failed to load model: {str(e)}")
+        st.error("Please check your internet connection and try again.")
+        st.stop()
 
 def stem_and_remove_punctuation(text: str, stem: bool, exclude_words: list = None):
     """Process text by removing punctuation and optionally stemming."""
@@ -47,7 +53,6 @@ def create_unigram(cluster: str, stem: bool, exclude_words: list = None):
     cluster = str(cluster) if pd.notna(cluster) else ''
     words = cluster.split()
     
-    # Filter out numbers and excluded words
     word_counts = Counter({
         word: count for word, count in Counter(words).items() 
         if (not (word.replace('.', '').isdigit() or word.replace(',', '').isdigit()) and
@@ -78,7 +83,6 @@ def create_chart(df, chart_type, volume, top_n=None):
         
     chart_df = df.groupby(['hub', 'spoke'])[volume].sum().reset_index(name='cluster_size') if volume else df.groupby(['hub', 'spoke']).size().reset_index(name='cluster_size')
     
-    # Optionally filter to top N clusters
     if top_n and top_n > 0:
         top_hubs = chart_df.groupby('hub')['cluster_size'].sum().nlargest(top_n).index
         chart_df = chart_df[chart_df['hub'].isin(top_hubs)]
@@ -108,31 +112,25 @@ def process_data(df, column_name, model_name, device, min_similarity, stem, volu
         return pd.DataFrame()
 
     try:
-        # Show progress
         progress_bar = st.progress(0)
         status_text = st.empty()
         
-        # Load model (cached)
         status_text.text("Loading model...")
         model = PolyFuzz(load_embedding_model(model_name, device))
         progress_bar.progress(20)
         
-        # Fit model
         status_text.text("Processing keywords...")
         model.fit(df['keyword'].tolist())
         progress_bar.progress(40)
         
-        # Group clusters
         status_text.text("Creating clusters...")
         model.group(link_min_similarity=min_similarity)
         progress_bar.progress(70)
         
-        # Get matches
         df_cluster = model.get_matches()
         df_cluster["Group"] = df_cluster["Similarity"].apply(lambda x: "no_cluster" if x < min_similarity else "cluster")
         progress_bar.progress(85)
         
-        # Merge results
         df = pd.merge(df, df_cluster.rename(columns={"From": "keyword", "Group": "spoke"})[['keyword', 'spoke']], on='keyword', how='left')
         df['hub'] = df['spoke'].apply(lambda x: create_unigram(x, stem, exclude_words))
         df['hub'] = df['hub'].apply(lambda x: "no_cluster" if x in ["noclust", "nocluster"] else x)
@@ -159,7 +157,6 @@ def main():
     Upload a CSV file containing your keywords to get started.
     """)
     
-    # Add example download
     with st.expander("Need example data?"):
         example_data = pd.DataFrame({
             "Keyword": ["buy iphone", "purchase iphone", "iphone deals", 
@@ -208,7 +205,7 @@ def main():
                 
                 device = st.selectbox(
                     "Device",
-                    ["cpu", "cuda"] if platform.system() != "Darwin" else ["cpu"],
+                    ["cpu", "cuda"] if torch.cuda.is_available() else ["cpu"],
                     index=0,
                     help="Select 'cuda' if you have an NVIDIA GPU for faster processing"
                 )
@@ -260,23 +257,19 @@ def main():
             if not processed_df.empty:
                 st.success("Processing completed!")
                 
-                # Show stats
                 cluster_stats = processed_df.groupby('hub').size().sort_values(ascending=False)
                 st.write(f"**Cluster Summary:** {len(cluster_stats)} clusters created")
                 st.dataframe(cluster_stats.head(10).rename("Count"))
                 
-                # Show data preview
                 with st.expander("View clustered data"):
                     st.dataframe(processed_df.head(100))
                 
-                # Create and show chart
                 fig = create_chart(processed_df, chart_type, volume, top_n if top_n > 0 else None)
                 if fig:
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No clusters to visualize. Try lowering the similarity threshold.")
                 
-                # Download button
                 st.download_button(
                     "Download clustered data as CSV",
                     processed_df.to_csv(index=False).encode('utf-8'),
