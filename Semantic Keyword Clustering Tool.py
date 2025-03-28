@@ -1,21 +1,31 @@
-# ===== FIX FOR STREAMLIT/PYTORCH COMPATIBILITY =====
+# ===== CRITICAL FIXES MUST COME FIRST =====
 import os
-os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Disables problematic file watcher
+os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Disables problematic watcher
+os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Prevents tokenizer conflicts
 
-# ===== REQUIRED IMPORTS =====
+# ===== SAFE TORCH IMPORT =====
+try:
+    import torch
+    if not hasattr(torch, '__version__'):
+        raise RuntimeError("PyTorch not properly installed")
+except Exception as e:
+    raise RuntimeError(f"PyTorch import failed: {str(e)}\nPlease reinstall: pip install torch --force-reinstall")
+
+# ===== NOW SAFE TO IMPORT STREAMLIT =====
+import streamlit as st
+
+# ===== MAIN IMPORTS =====
 import platform
 import string
 from collections import Counter
 import pandas as pd
 import plotly.express as px
-import streamlit as st
 from polyfuzz import PolyFuzz
 from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
-import torch  # Must be imported after the environment fix
 
-# ===== STREAMLIT PAGE CONFIG (MUST BE FIRST COMMAND) =====
+# ===== STREAMLIT CONFIG =====
 st.set_page_config(
     page_title="Keyword Clustering Tool",
     page_icon="🔍",
@@ -29,20 +39,20 @@ COMMON_COLUMN_NAMES = [
     "Search Terms", "Search terms", "Search term", "Search Term"
 ]
 
-# ===== CACHED MODEL LOADER =====
+# ===== CORE FUNCTIONS =====
 @st.cache_resource
 def load_embedding_model(model_name: str, device: str):
-    """Load and cache the SentenceTransformer model with error handling."""
+    """Load with memory management and error handling"""
     try:
-        with st.spinner(f'Loading {model_name}... This may take a minute.'):
+        with st.spinner(f'Loading {model_name}...'):
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
             model = SentenceTransformer(model_name, device=device)
             return SentenceEmbeddings(model)
     except Exception as e:
-        st.error(f"Failed to load model: {str(e)}")
-        st.error("Please check your internet connection and try again.")
+        st.error(f"Model loading failed: {str(e)}")
         st.stop()
 
-# ===== TEXT PROCESSING FUNCTIONS =====
 def stem_and_remove_punctuation(text: str, stem: bool, exclude_words: list = None):
     text = str(text) if pd.notna(text) else ''
     text = text.translate(str.maketrans('', '', string.punctuation))
@@ -68,7 +78,6 @@ def create_unigram(cluster: str, stem: bool, exclude_words: list = None):
         exclude_words
     )
 
-# ===== FILE HANDLING =====
 def load_file(uploaded_file):
     try:
         return pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
@@ -78,7 +87,6 @@ def load_file(uploaded_file):
         st.error(f"Error loading file: {e}")
         return None
 
-# ===== VISUALIZATION =====
 def create_chart(df, chart_type, volume, top_n=None):
     if df.empty or 'hub' not in df.columns or 'spoke' not in df.columns:
         return None
@@ -102,7 +110,6 @@ def create_chart(df, chart_type, volume, top_n=None):
     fig.update_layout(margin=dict(t=0, l=0, r=0, b=0))
     return fig
 
-# ===== MAIN PROCESSING =====
 def process_data(df, column_name, model_name, device, min_similarity, stem, volume, exclude_words=None):
     df = df.copy()
     df.rename(columns={column_name: 'keyword'}, inplace=True)
@@ -248,4 +255,14 @@ def main():
                             )
 
 if __name__ == "__main__":
+    # Clean up any existing event loops
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            loop.close()
+    except:
+        pass
+    
+    # Run the app
     main()
