@@ -6,6 +6,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Prevents tokenizer conflicts
 # ===== SAFE TORCH IMPORT =====
 try:
     import torch
+    torch.__path__ = []  # Block Streamlit's internal inspection
     if not hasattr(torch, '__version__'):
         raise RuntimeError("PyTorch not properly installed")
 except Exception as e:
@@ -24,6 +25,11 @@ from polyfuzz import PolyFuzz
 from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
+import warnings
+
+# ===== SILENCE WARNINGS =====
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="polyfuzz")
+warnings.filterwarnings("ignore", category=UserWarning)
 
 # ===== STREAMLIT CONFIG =====
 st.set_page_config(
