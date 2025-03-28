@@ -11,7 +11,6 @@ from polyfuzz import PolyFuzz
 from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
-from stqdm import stqdm
 
 # System check
 IS_WINDOWS = platform.system() == 'Windows'
@@ -80,7 +79,7 @@ def create_chart(df, chart_type, volume, top_n=None):
     chart_df = df.groupby(['hub', 'spoke'])[volume].sum().reset_index(name='cluster_size') if volume else df.groupby(['hub', 'spoke']).size().reset_index(name='cluster_size')
     
     # Optionally filter to top N clusters
-    if top_n:
+    if top_n and top_n > 0:
         top_hubs = chart_df.groupby('hub')['cluster_size'].sum().nlargest(top_n).index
         chart_df = chart_df[chart_df['hub'].isin(top_hubs)]
     
@@ -188,7 +187,7 @@ def main():
                     df.columns,
                     index=next(
                         (i for i, col in enumerate(df.columns) 
-                        if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]),
+                         if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]),
                         0
                     ),
                     help="Select the column containing your keywords"
