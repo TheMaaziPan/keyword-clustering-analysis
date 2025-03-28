@@ -10,6 +10,14 @@ from polyfuzz.models import SentenceEmbeddings
 from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
 
+# This must be the first Streamlit command
+st.set_page_config(
+    page_title="Keyword Clustering Tool",
+    page_icon="🔍",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Check for PyTorch compatibility
 try:
     import torch
@@ -144,13 +152,6 @@ def process_data(df, column_name, model_name, device, min_similarity, stem, volu
         return pd.DataFrame()
 
 def main():
-    st.set_page_config(
-        page_title="Keyword Clustering Tool",
-        page_icon="🔍",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
     st.title("🔍 Semantic Keyword Clustering Tool")
     st.markdown("""
     Cluster keywords by semantic similarity using Sentence Transformers.
