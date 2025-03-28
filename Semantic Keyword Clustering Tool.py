@@ -10,19 +10,23 @@ try:
     import torch
     torch.__path__ = []  # Block Streamlit's internal inspection
     
-    # Import sentence-transformers with simplified functionality
-    from sentence_transformers import SentenceTransformer
-    # Create simplified version to avoid cross-encoder imports
-    class SimpleSentenceTransformer(SentenceTransformer):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            # Disable unnecessary components
-            self._modules = {k:v for k,v in self._modules.items() 
-                           if not k.startswith('cross_encoder')}
+    # Alternative sentence-transformers implementation
+    from sentence_transformers import SentenceTransformer as OriginalSentenceTransformer
     
-    # Patch polyfuzz to use our simplified version
+    # Create simplified version that avoids cross-encoder imports
+    class SafeSentenceTransformer:
+        def __init__(self, model_name_or_path, device=None):
+            self.model = OriginalSentenceTransformer(model_name_or_path, device=device)
+        
+        def encode(self, sentences, *args, **kwargs):
+            return self.model.encode(sentences, *args, **kwargs)
+        
+        def __call__(self, sentences, *args, **kwargs):
+            return self.encode(sentences, *args, **kwargs)
+    
+    # Patch polyfuzz to use our safe version
     from polyfuzz.models import _sbert
-    _sbert.SentenceTransformer = SimpleSentenceTransformer
+    _sbert.SentenceTransformer = SafeSentenceTransformer
     
     from polyfuzz import PolyFuzz
     from polyfuzz.models import SentenceEmbeddings
@@ -67,7 +71,7 @@ def load_embedding_model(model_name: str, device: str):
         with st.spinner(f'Loading {model_name}...'):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            return SentenceEmbeddings(SimpleSentenceTransformer(model_name, device=device))
+            return SentenceEmbeddings(SafeSentenceTransformer(model_name, device=device))
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
         st.stop()
