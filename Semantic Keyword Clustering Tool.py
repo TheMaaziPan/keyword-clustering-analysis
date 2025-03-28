@@ -184,10 +184,13 @@ def main():
             df = load_file(uploaded_file)
             if df is not None:
                 column_options = df.columns.tolist()
-                column_name = st.selectbox()
+                column_name = st.selectbox(
                     "Select column containing keywords",
                     column_options,
-                    index=next((i for i, col in enumerate(column_options) if col.lower() in ['keyword', 'keywords', 'search term', 'search terms'], 0)
+                    index=next(
+                        (i for i, col in enumerate(column_options) 
+                        if col.lower() in ['keyword', 'keywords', 'search term', 'search terms']
+                    ), 0)
                 )
 
                 volume_options = [None] + [col for col in column_options if col != column_name]
