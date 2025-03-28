@@ -6,23 +6,30 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
 # ===== SAFE IMPORTS WITH ERROR HANDLING =====
 try:
+    # Import torch first to prevent conflicts
     import torch
     torch.__path__ = []  # Block Streamlit's internal inspection
-    if not torch.cuda.is_available():
-        pass  # Silent fallback to CPU
-except ImportError:
-    raise ImportError("PyTorch not installed. Run: pip install torch")
-
-try:
+    
+    # Import sentence-transformers with simplified functionality
     from sentence_transformers import SentenceTransformer
-except ImportError:
-    raise ImportError("sentence-transformers not installed. Run: pip install sentence-transformers")
-
-try:
+    # Create simplified version to avoid cross-encoder imports
+    class SimpleSentenceTransformer(SentenceTransformer):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            # Disable unnecessary components
+            self._modules = {k:v for k,v in self._modules.items() 
+                           if not k.startswith('cross_encoder')}
+    
+    # Patch polyfuzz to use our simplified version
+    from polyfuzz.models import _sbert
+    _sbert.SentenceTransformer = SimpleSentenceTransformer
+    
     from polyfuzz import PolyFuzz
     from polyfuzz.models import SentenceEmbeddings
-except ImportError:
-    raise ImportError("polyfuzz not installed. Run: pip install polyfuzz")
+    
+except ImportError as e:
+    raise ImportError(f"Missing dependency: {str(e)}\n"
+                     "Run: pip install torch sentence-transformers polyfuzz") from e
 
 # ===== NOW SAFE TO IMPORT STREAMLIT =====
 import streamlit as st
@@ -60,7 +67,7 @@ def load_embedding_model(model_name: str, device: str):
         with st.spinner(f'Loading {model_name}...'):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            return SentenceEmbeddings(SentenceTransformer(model_name, device=device))
+            return SentenceEmbeddings(SimpleSentenceTransformer(model_name, device=device))
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
         st.stop()
