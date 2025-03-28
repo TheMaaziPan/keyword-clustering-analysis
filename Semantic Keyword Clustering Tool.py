@@ -122,7 +122,7 @@ def process_data(df, column_name, model_name, device, min_similarity, stem, volu
         # Process results
         df_cluster = model.get_matches()
         df_cluster["Group"] = df_cluster["Similarity"].apply(
-            lambda x: "no_cluster" if x < min_similarity else x)
+            lambda x: "no_cluster" if x < min_similarity else "cluster")
         
         # Merge results with original data
         df = pd.merge(
@@ -165,13 +165,14 @@ def main():
         if uploaded_file is not None:
             df = load_file(uploaded_file)
             if df is not None and not df.empty:
+                # Fixed selectbox with proper parenthesis closure
                 column_name = st.selectbox(
                     "Select keyword column",
                     df.columns,
                     index=next(
                         (i for i, col in enumerate(df.columns) 
                         if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]
-                    , 0)
+                    ), 0
                 )
                 
                 volume_cols = [None] + [col for col in df.columns if col != column_name]
