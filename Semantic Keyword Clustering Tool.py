@@ -1,35 +1,42 @@
 # ===== CRITICAL FIXES MUST COME FIRST =====
 import os
-os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"  # Disables problematic watcher
-os.environ["TOKENIZERS_PARALLELISM"] = "false"  # Prevents tokenizer conflicts
+os.environ["STREAMLIT_SERVER_ENABLE_FILE_WATCHER"] = "false"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
 
-# ===== SAFE TORCH IMPORT =====
+# ===== SAFE IMPORTS WITH ERROR HANDLING =====
 try:
     import torch
     torch.__path__ = []  # Block Streamlit's internal inspection
-    if not hasattr(torch, '__version__'):
-        raise RuntimeError("PyTorch not properly installed")
-except Exception as e:
-    raise RuntimeError(f"PyTorch import failed: {str(e)}\nPlease reinstall: pip install torch --force-reinstall")
+    if not torch.cuda.is_available():
+        pass  # Silent fallback to CPU
+except ImportError:
+    raise ImportError("PyTorch not installed. Run: pip install torch")
+
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:
+    raise ImportError("sentence-transformers not installed. Run: pip install sentence-transformers")
+
+try:
+    from polyfuzz import PolyFuzz
+    from polyfuzz.models import SentenceEmbeddings
+except ImportError:
+    raise ImportError("polyfuzz not installed. Run: pip install polyfuzz")
 
 # ===== NOW SAFE TO IMPORT STREAMLIT =====
 import streamlit as st
 
 # ===== MAIN IMPORTS =====
-import platform
 import string
 from collections import Counter
 import pandas as pd
 import plotly.express as px
-from polyfuzz import PolyFuzz
-from polyfuzz.models import SentenceEmbeddings
-from sentence_transformers import SentenceTransformer
 from nltk.stem import PorterStemmer
 import warnings
 
 # ===== SILENCE WARNINGS =====
-warnings.filterwarnings("ignore", category=SyntaxWarning, module="polyfuzz")
-warnings.filterwarnings("ignore", category=UserWarning)
+warnings.filterwarnings("ignore")
 
 # ===== STREAMLIT CONFIG =====
 st.set_page_config(
@@ -53,8 +60,7 @@ def load_embedding_model(model_name: str, device: str):
         with st.spinner(f'Loading {model_name}...'):
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-            model = SentenceTransformer(model_name, device=device)
-            return SentenceEmbeddings(model)
+            return SentenceEmbeddings(SentenceTransformer(model_name, device=device))
     except Exception as e:
         st.error(f"Model loading failed: {str(e)}")
         st.stop()
@@ -180,8 +186,6 @@ def main():
 
     with st.sidebar:
         st.header("Settings")
-        if not torch.cuda.is_available():
-            st.caption("⚠️ Running on CPU (slower). For GPU acceleration, use an NVIDIA GPU with CUDA.")
         
         uploaded_file = st.file_uploader("Upload CSV file", type=["csv"])
         
