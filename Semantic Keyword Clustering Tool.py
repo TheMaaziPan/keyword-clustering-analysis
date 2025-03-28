@@ -24,6 +24,7 @@ COMMON_COLUMN_NAMES = [
 ]
 
 def stem_and_remove_punctuation(text: str, stem: bool):
+    """Process text by removing punctuation and optionally stemming."""
     text = str(text) if pd.notna(text) else ''
     text = text.translate(str.maketrans('', '', string.punctuation))
     if stem and text:
@@ -32,6 +33,7 @@ def stem_and_remove_punctuation(text: str, stem: bool):
     return text
 
 def create_unigram(cluster: str, stem: bool):
+    """Create unigram from the cluster and return the most common word."""
     cluster = str(cluster) if pd.notna(cluster) else ''
     words = cluster.split()
     word_counts = Counter({
@@ -44,6 +46,7 @@ def create_unigram(cluster: str, stem: bool):
     )
 
 def load_file(uploaded_file):
+    """Load a CSV file with automatic encoding detection."""
     try:
         try:
             return pd.read_csv(uploaded_file, encoding='utf-8', on_bad_lines='skip')
@@ -54,6 +57,7 @@ def load_file(uploaded_file):
         return None
 
 def create_chart(df, chart_type, volume):
+    """Create visualization of clustered data."""
     if df.empty or 'hub' not in df.columns or 'spoke' not in df.columns:
         return None
         
@@ -66,6 +70,7 @@ def create_chart(df, chart_type, volume):
                     color_discrete_sequence=px.colors.qualitative.Pastel2)
 
 def process_data(df, column_name, model_name, device, min_similarity, stem, volume):
+    """Process and cluster the keyword data."""
     df = df.copy()
     df.rename(columns={column_name: 'keyword'}, inplace=True)
     df['keyword'] = df['keyword'].astype(str).str.strip().replace(['nan', '', 'None'], 'no_keyword')
@@ -113,7 +118,8 @@ def main():
                     df.columns,
                     index=next(
                         (i for i, col in enumerate(df.columns) 
-                        if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]
+                         if col.lower() in [x.lower() for x in COMMON_COLUMN_NAMES]),
+                        0
                     )
                 )
                 
