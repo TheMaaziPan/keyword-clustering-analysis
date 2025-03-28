@@ -7,3 +7,4 @@ scikit-learn
 sentence-transformers
 umap-learn
 hdbscan
+chardet==5.2.0
